@@ -386,7 +386,8 @@ export class TypebotService {
             options: {
               delay: wait ? wait * 1000 : instance.localTypebot.delay_message || 1000,
               presence: 'recording',
-              encoding: true,
+              // encoding: true,
+              encoding: false,
             },
             audioMessage: {
               audio: message.content.url,
