@@ -538,8 +538,8 @@ export class ChatwootService {
           }
         } else {
           conversation = contactConversations.payload.find(
-         //francis removido  (conversation) => conversation.status !== 'resolved' && conversation.inbox_id == filterInbox.id,
-          (conversation) => conversation.status === 'resolved' && conversation.inbox_id == filterInbox.id,
+         (conversation) => conversation.status !== 'resolved' && conversation.inbox_id == filterInbox.id,
+        
           );
         }
         this.logger.verbose('return conversation if exists');
