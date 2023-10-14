@@ -538,8 +538,9 @@ export class ChatwootService {
           }
         } else {
          conversation = contactConversations.payload.find(
-            (conversation) => conversation.status !== 'resolved' && conversation.inbox_id == filterInbox.id,
-          );
+         // francis   (conversation) => conversation.status !== 'resolved' && conversation.inbox_id == filterInbox.id,
+           conversation = contactConversations.payload.find((conversation) => conversation.inbox_id == filterInbox.id);
+          
         }
         this.logger.verbose('return conversation if exists');
 
