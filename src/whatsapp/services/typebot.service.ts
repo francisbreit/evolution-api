@@ -4,7 +4,7 @@ import { Logger } from '../../config/logger.config';
 import { InstanceDto } from '../dto/instance.dto';
 import { Session, TypebotDto } from '../dto/typebot.dto';
 import { MessageRaw } from '../models';
-import { Events } from '../types/wa.typesrecord';
+import { Events } from '../types/wa.types';
 import { WAMonitoringService } from './monitor.service';
 
 export class TypebotService {
@@ -417,9 +417,9 @@ export class TypebotService {
           await instance.audioWhatsapp({
             number: remoteJid.split('@')[0],
             options: {
-            delay: wait ? wait * 1000 : instance.localTypebot.delay_message || 1000, 
+              delay: wait ? wait * 1000 : instance.localTypebot.delay_message || 1000,
               presence: 'recording',
-             // modificado por francis encoding: true,
+              // alterado para false
               encoding: false,
             },
             audioMessage: {
