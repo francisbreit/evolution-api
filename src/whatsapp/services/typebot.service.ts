@@ -417,7 +417,7 @@ export class TypebotService {
           await instance.audioWhatsapp({
             number: remoteJid.split('@')[0],
             options: {
-              delay: wait ? wait * 1000 : instance.localTypebot.delay_message || 1000,
+              delay: wait ? wait * 3000 : instance.localTypebot.delay_message || 1000,
               presence: 'recording',
               // alterado para false
               encoding: false,
