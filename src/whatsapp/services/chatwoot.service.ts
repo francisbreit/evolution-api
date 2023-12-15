@@ -1460,8 +1460,8 @@ export class ChatwootService {
         this.logger.warn('client not found');
         return null;
       }
-
-      if (event === 'messages.upsert' || event === 'send.message') {
+      // modificado por Francis
+      if (event === 'messages.upsert') {
         this.logger.verbose('event messages.upsert');
 
         if (body.key.remoteJid === 'status@broadcast') {
