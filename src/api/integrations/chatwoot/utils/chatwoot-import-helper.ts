@@ -61,7 +61,7 @@ class ChatwootImport {
     RETURNING *`;
 
   try {
-    const result = await pgClient.query(sqlInsertLabel, [phoneNumber, accountId]);
+    const result = await pgClient.query(sqlInsertLabel, [identifier, accountId]);
     return result.rows[0];
   } catch (error) {
     this.logger.error(`Error on insert label: ${error.toString()}`);
