@@ -53,7 +53,7 @@ class ChatwootImport {
     this.historyMessages.set(instance.instanceName, actualValue.concat(messagesRaw));
   }
 
-  public async insertLabel(identifier: string, accountId: number) {
+public async insertLabel(phoneNumber: string, accountId: number) {
   const pgClient = postgresClient.getChatwootConnection();
   const sqlInsertLabel = `
     INSERT INTO labels (title, description, color, show_on_sidebar, account_id)
@@ -61,7 +61,7 @@ class ChatwootImport {
     RETURNING *`;
 
   try {
-    const result = await pgClient.query(sqlInsertLabel, [identifier, accountId]);
+    const result = await pgClient.query(sqlInsertLabel, [phoneNumber, accountId]);
     return result.rows[0];
   } catch (error) {
     this.logger.error(`Error on insert label: ${error.toString()}`);
@@ -128,7 +128,7 @@ class ChatwootImport {
 
           sqlInsert += `(${bindName}, ${bindPhoneNumber}, $1, ${bindIdentifier}, NOW(), NOW()),`;
          // Inserindo o label para cada contato
-        await this.insertLabel(`+${contact.id.split('@')[0]}`, provider.account_id);
+        await this.insertLabel(`+${contact.id.split('@')[0]}`, Number(provider.account_id));
          }
         if (sqlInsert.slice(-1) === ',') {
           sqlInsert = sqlInsert.slice(0, -1);
