@@ -53,7 +53,7 @@ class ChatwootImport {
     this.historyMessages.set(instance.instanceName, actualValue.concat(messagesRaw));
   }
 
-  public async insertLabel(phoneNumber: string, accountId: number) {
+  public async insertLabel(identifier: string, accountId: number) {
   const pgClient = postgresClient.getChatwootConnection();
   const sqlInsertLabel = `
     INSERT INTO labels (title, description, color, show_on_sidebar, account_id)
