@@ -1,4 +1,3 @@
-versao 2
 import { inbox } from '@figuro/chatwoot-sdk';
 import { proto } from '@whiskeysockets/baileys';
 
