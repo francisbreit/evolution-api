@@ -119,6 +119,8 @@ class ChatwootImport {
       }
 
       let contactsChunk: ContactRaw[] = this.sliceIntoChunks(contacts, 3000);
+       // Inserindo o label uma única vez
+      await this.insertLabel(instance.instanceName, Number(provider.account_id));
       while (contactsChunk.length > 0) {
         // inserting contacts in chatwoot db
         let sqlInsert = `INSERT INTO contacts
@@ -137,7 +139,7 @@ class ChatwootImport {
 
           sqlInsert += `(${bindName}, ${bindPhoneNumber}, $1, ${bindIdentifier}, NOW(), NOW()),`;
         // Inserindo o label para cada contato
-          await this.insertLabel(instance.instanceName, Number(provider.account_id));
+         // await this.insertLabel(instance.instanceName, Number(provider.account_id));
         
         }
         if (sqlInsert.slice(-1) === ',') {
