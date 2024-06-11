@@ -182,7 +182,7 @@ class ChatwootImport {
         contactsChunk = this.sliceIntoChunks(contacts, 3000);
       }
 
-      await this.insertTaggings(tagId, contacts, createdAt);
+      // await this.insertTaggings(tagId, contacts, createdAt);
 
       this.deleteHistoryContacts(instance);
 
