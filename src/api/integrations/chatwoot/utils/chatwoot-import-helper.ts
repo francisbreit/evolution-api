@@ -129,23 +129,6 @@ class ChatwootImport {
 }
 
 
-  public async insertTaggings(tagId: number, contacts: ContactRaw[], createdAt: Date) {
-    const pgClient = postgresClient.getChatwootConnection();
-    const sqlInsertTaggings = `
-      INSERT INTO taggings (tag_id, taggable_type, taggable_id, tagger_type, tagger_id, context, created_at)
-      VALUES ($1, 'Contact', $2, NULL, NULL, 'labels', $3)
-    `;
-
-    try {
-      const values = contacts.map(contact => [tagId, contact.id, createdAt]);
-      for (const value of values) {
-        await pgClient.query(sqlInsertTaggings, value);
-      }
-    } catch (error) {
-      this.logger.error(`Error on insert taggings: ${error.toString()}`);
-    }
-  }
-
   public async importHistoryContacts(instance: InstanceDto, provider: ChatwootRaw) {
     try {
       if (this.getHistoryMessagesLenght(instance) > 0) {
@@ -183,8 +166,7 @@ class ChatwootImport {
           const bindIdentifier = `$${bindInsert.length}`;
 
           sqlInsert += `(${bindName}, ${bindPhoneNumber}, $1, ${bindIdentifier}, NOW(), NOW()),`;
-        // Inserindo o label para cada contato
-         // await this.insertLabel(instance.instanceName, Number(provider.account_id));
+        
         
         }
         if (sqlInsert.slice(-1) === ',') {
