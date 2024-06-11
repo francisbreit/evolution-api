@@ -85,7 +85,7 @@ class ChatwootImport {
     `;
     const sqlInsertLabel = `
       INSERT INTO labels (title, description, color, show_on_sidebar, account_id, created_at, updated_at)
-      VALUES ($1, 'fonte origem do contato', '#2BB32F', TRUE, $2, NOW(), NOW())
+      VALUES ($1, 'fonte origem do contato', '#2BB32F', TRUE, $2, '2024-04-04 15:48:51.692808', '2024-04-04 15:48:51.692808')
       RETURNING *
     `;
 
