@@ -78,31 +78,6 @@ class ChatwootImport {
     return this.historyMessages.get(instance.instanceName)?.length ?? 0;
   }
 
-  public async insertLabel(instanceName: string, accountId: number) {
-    const pgClient = postgresClient.getChatwootConnection();
-    const sqlCheckLabel = `
-      SELECT 1 FROM labels WHERE title = $1 AND account_id = $2
-    `;
-    const sqlInsertLabel = `
-      INSERT INTO labels (title, description, color, show_on_sidebar, account_id, created_at, updated_at)
-      VALUES ($1, 'fonte origem do contato', '#2BB32F', TRUE, $2, '2024-04-04 15:48:51.692808', '2024-04-04 15:48:51.692808')
-      RETURNING *
-    `;
-
-    try {
-      const checkResult = await pgClient.query(sqlCheckLabel, [instanceName, accountId]);
-      if (checkResult.rowCount === 0) {
-        const result = await pgClient.query(sqlInsertLabel, [instanceName, accountId]);
-        return result.rows[0];
-      } else {
-        this.logger.info(`Label with title ${instanceName} already exists for account_id ${accountId}`);
-        return null;
-      }
-    } catch (error) {
-      this.logger.error(`Error on insert label: ${error.toString()}`);
-    }
-  }
-
   public async importHistoryContacts(instance: InstanceDto, provider: ChatwootRaw) {
     try {
       if (this.getHistoryMessagesLenght(instance) > 0) {
@@ -136,9 +111,6 @@ class ChatwootImport {
           const bindIdentifier = `$${bindInsert.length}`;
 
           sqlInsert += `(${bindName}, ${bindPhoneNumber}, $1, ${bindIdentifier}, NOW(), NOW()),`;
-
-          // Inserindo o label para cada contato
-          await this.insertLabel(instance.instanceName, Number(provider.account_id));
         }
         if (sqlInsert.slice(-1) === ',') {
           sqlInsert = sqlInsert.slice(0, -1);
@@ -244,143 +216,257 @@ class ChatwootImport {
               bindInsertMsg.push(fksChatwoot.conversation_id);
               const bindConversationId = `$${bindInsertMsg.length}`;
 
-              bindInsertMsg.push(message.messageTimestamp);
-              const bindCreatedAt = `to_timestamp($${bindInsertMsg.length}::double precision)`;
+              bindInsertMsg.push(message.key.fromMe ? '1' : '0');
+              const bindMessageType = `$${bindInsertMsg.length}`;
 
-              sqlInsertMsg += `(${bindContent}, $1, $2, ${bindConversationId}, 'incoming', FALSE, 'text',
-              'Contact', ${fksChatwoot.contact_id}, ${bindCreatedAt}, ${bindCreatedAt}),`;
+              bindInsertMsg.push(message.key.fromMe ? chatwootUser.user_type : 'Contact');
+              const bindSenderType = `$${bindInsertMsg.length}`;
+
+              bindInsertMsg.push(message.key.fromMe ? chatwootUser.user_id : fksChatwoot.contact_id);
+              const bindSenderId = `$${bindInsertMsg.length}`;
+
+              bindInsertMsg.push(message.messageTimestamp as number);
+              const bindmessageTimestamp = `$${bindInsertMsg.length}`;
+
+              sqlInsertMsg += `(${bindContent}, $1, $2, ${bindConversationId}, ${bindMessageType}, FALSE, 0,
+                  ${bindSenderType},${bindSenderId}, to_timestamp(${bindmessageTimestamp}), to_timestamp(${bindmessageTimestamp})),`;
             });
           });
-          if (sqlInsertMsg.slice(-1) === ',') {
-            sqlInsertMsg = sqlInsertMsg.slice(0, -1);
+          if (bindInsertMsg.length > 2) {
+            if (sqlInsertMsg.slice(-1) === ',') {
+              sqlInsertMsg = sqlInsertMsg.slice(0, -1);
+            }
+            totalMessagesImported += (await pgClient.query(sqlInsertMsg, bindInsertMsg))?.rowCount ?? 0;
           }
-          sqlInsertMsg += ` ON CONFLICT (conversation_id, created_at)
-                            DO UPDATE SET
-                              content = EXCLUDED.content`;
-
-          totalMessagesImported += (await pgClient.query(sqlInsertMsg, bindInsertMsg))?.rowCount ?? 0;
-          messagesChunk = this.sliceIntoChunks(messagesOrdered, batchSize);
         }
+        messagesChunk = this.sliceIntoChunks(messagesOrdered, batchSize);
       }
 
       this.deleteHistoryMessages(instance);
+      this.deleteRepositoryMessagesCache(instance);
+
+      this.importHistoryContacts(instance, provider);
 
       return totalMessagesImported;
     } catch (error) {
       this.logger.error(`Error on import history messages: ${error.toString()}`);
+
+      this.deleteHistoryMessages(instance);
+      this.deleteRepositoryMessagesCache(instance);
     }
   }
 
-  private createMessagesMapByPhoneNumber(messages: MessageRaw[]): Map<string, MessageRaw[]> {
-    const messagesByPhoneNumber = new Map<string, MessageRaw[]>();
-    messages.forEach((message) => {
-      const phoneNumber = `+${message.key.remoteJid.split('@')[0]}`;
-      const previousMessages = messagesByPhoneNumber.get(phoneNumber) || [];
-      previousMessages.push(message);
-      messagesByPhoneNumber.set(phoneNumber, previousMessages);
-    });
-    return messagesByPhoneNumber;
-  }
-
-  private sliceIntoChunks(messages: MessageRaw[], chunkSize: number): MessageRaw[] {
-    return messages.splice(0, chunkSize);
-  }
-
-  private async selectOrCreateFksFromChatwoot(
+  public async selectOrCreateFksFromChatwoot(
     provider: ChatwootRaw,
     inbox: inbox,
     phoneNumbersWithTimestamp: Map<string, firstLastTimestamp>,
     messagesByPhoneNumber: Map<string, MessageRaw[]>,
   ): Promise<Map<string, FksChatwoot>> {
-    const fksByNumber = new Map<string, FksChatwoot>();
-
-    const phoneNumbers = [...messagesByPhoneNumber.keys()];
-
     const pgClient = postgresClient.getChatwootConnection();
 
-    const sql = `
-      SELECT c.phone_number, c.id as contact_id, con.id as conversation_id
-      FROM contacts c
-      LEFT JOIN conversations con
-      ON con.contact_id = c.id
-      WHERE c.phone_number = ANY ($1::text[])
-    `;
-    const rows = (await pgClient.query(sql, [phoneNumbers]))?.rows || [];
+    const bindValues = [provider.account_id, inbox.id];
+    const phoneNumberBind = Array.from(messagesByPhoneNumber.keys())
+      .map((phoneNumber) => {
+        const phoneNumberTimestamp = phoneNumbersWithTimestamp.get(phoneNumber);
 
-    for (const phoneNumber of phoneNumbers) {
-      const contact = rows.find((row: any) => row.phone_number === phoneNumber);
+        if (phoneNumberTimestamp) {
+          bindValues.push(phoneNumber);
+          let bindStr = `($${bindValues.length},`;
 
-      if (contact?.conversation_id) {
-        fksByNumber.set(phoneNumber, contact);
-        continue;
+          bindValues.push(phoneNumberTimestamp.first);
+          bindStr += `$${bindValues.length},`;
+
+          bindValues.push(phoneNumberTimestamp.last);
+          return `${bindStr}$${bindValues.length})`;
+        }
+      })
+      .join(',');
+
+    // select (or insert when necessary) data from tables contacts, contact_inboxes, conversations from chatwoot db
+    const sqlFromChatwoot = `WITH
+              phone_number AS (
+                SELECT phone_number, created_at::INTEGER, last_activity_at::INTEGER FROM (
+                  VALUES 
+                   ${phoneNumberBind}
+                 ) as t (phone_number, created_at, last_activity_at)
+              ),
+
+              only_new_phone_number AS (
+                SELECT * FROM phone_number
+                WHERE phone_number NOT IN (
+                  SELECT phone_number
+                  FROM contacts
+                    JOIN contact_inboxes ci ON ci.contact_id = contacts.id AND ci.inbox_id = $2
+                    JOIN conversations con ON con.contact_inbox_id = ci.id 
+                      AND con.account_id = $1
+                      AND con.inbox_id = $2
+                      AND con.contact_id = contacts.id
+                  WHERE contacts.account_id = $1
+                )
+              ),
+
+              new_contact AS (
+                INSERT INTO contacts (name, phone_number, account_id, identifier, created_at, updated_at)
+                SELECT REPLACE(p.phone_number, '+', ''), p.phone_number, $1, CONCAT(REPLACE(p.phone_number, '+', ''),
+                  '@s.whatsapp.net'), to_timestamp(p.created_at), to_timestamp(p.last_activity_at)
+                FROM only_new_phone_number AS p
+                ON CONFLICT(identifier, account_id) DO UPDATE SET updated_at = EXCLUDED.updated_at
+                RETURNING id, phone_number, created_at, updated_at
+              ),
+
+              new_contact_inbox AS (
+                INSERT INTO contact_inboxes (contact_id, inbox_id, source_id, created_at, updated_at)
+                SELECT new_contact.id, $2, gen_random_uuid(), new_contact.created_at, new_contact.updated_at
+                FROM new_contact 
+                RETURNING id, contact_id, created_at, updated_at
+              ),
+
+              new_conversation AS (
+                INSERT INTO conversations (account_id, inbox_id, status, contact_id,
+                  contact_inbox_id, uuid, last_activity_at, created_at, updated_at)
+                SELECT $1, $2, 0, new_contact_inbox.contact_id, new_contact_inbox.id, gen_random_uuid(),
+                  new_contact_inbox.updated_at, new_contact_inbox.created_at, new_contact_inbox.updated_at
+                FROM new_contact_inbox
+                RETURNING id, contact_id
+              )
+
+              SELECT new_contact.phone_number, new_conversation.contact_id, new_conversation.id AS conversation_id
+              FROM new_conversation 
+              JOIN new_contact ON new_conversation.contact_id = new_contact.id
+
+              UNION
+
+              SELECT p.phone_number, c.id contact_id, con.id conversation_id
+                FROM phone_number p
+              JOIN contacts c ON c.phone_number = p.phone_number
+              JOIN contact_inboxes ci ON ci.contact_id = c.id AND ci.inbox_id = $2
+              JOIN conversations con ON con.contact_inbox_id = ci.id AND con.account_id = $1
+                AND con.inbox_id = $2 AND con.contact_id = c.id`;
+
+    const fksFromChatwoot = await pgClient.query(sqlFromChatwoot, bindValues);
+
+    return new Map(fksFromChatwoot.rows.map((item: FksChatwoot) => [item.phone_number, item]));
+  }
+
+  public async getChatwootUser(provider: ChatwootRaw): Promise<ChatwootUser> {
+    try {
+      const pgClient = postgresClient.getChatwootConnection();
+
+      const sqlUser = `SELECT owner_type AS user_type, owner_id AS user_id
+                         FROM access_tokens
+                       WHERE token = $1`;
+
+      return (await pgClient.query(sqlUser, [provider.token]))?.rows[0] || false;
+    } catch (error) {
+      this.logger.error(`Error on getChatwootUser: ${error.toString()}`);
+    }
+  }
+
+  public createMessagesMapByPhoneNumber(messages: MessageRaw[]): Map<string, MessageRaw[]> {
+    return messages.reduce((acc: Map<string, MessageRaw[]>, message: MessageRaw) => {
+      if (!this.isIgnorePhoneNumber(message?.key?.remoteJid)) {
+        const phoneNumber = message?.key?.remoteJid?.split('@')[0];
+        if (phoneNumber) {
+          const phoneNumberPlus = `+${phoneNumber}`;
+          const messages = acc.has(phoneNumberPlus) ? acc.get(phoneNumberPlus) : [];
+          messages.push(message);
+          acc.set(phoneNumberPlus, messages);
+        }
       }
 
-      const messages = messagesByPhoneNumber.get(phoneNumber) || [];
-      if (messages.length === 0) {
-        continue;
-      }
+      return acc;
+    }, new Map());
+  }
 
-      const firstMessageTimestamp = phoneNumbersWithTimestamp.get(phoneNumber)?.first;
-      const firstMessage = messages.find((message) => message.messageTimestamp === firstMessageTimestamp);
+  public async getContactsOrderByRecentConversations(
+    inbox: inbox,
+    provider: ChatwootRaw,
+    limit = 50,
+  ): Promise<{ id: number; phone_number: string; identifier: string }[]> {
+    try {
+      const pgClient = postgresClient.getChatwootConnection();
 
-      const identifier = firstMessage?.key.remoteJid;
+      const sql = `SELECT contacts.id, contacts.identifier, contacts.phone_number
+                     FROM conversations
+                   JOIN contacts ON contacts.id = conversations.contact_id
+                   WHERE conversations.account_id = $1
+                     AND inbox_id = $2
+                   ORDER BY conversations.last_activity_at DESC
+                   LIMIT $3`;
 
-      if (!identifier) {
-        continue;
-      }
+      return (await pgClient.query(sql, [provider.account_id, inbox.id, limit]))?.rows;
+    } catch (error) {
+      this.logger.error(`Error on get recent conversations: ${error.toString()}`);
+    }
+  }
 
-      const contact_id = await this.insertContactChatwoot(provider, phoneNumber, identifier);
-      const conversation_id = await this.insertConversationChatwoot(provider, inbox, contact_id);
-
-      fksByNumber.set(phoneNumber, { phone_number: phoneNumber, contact_id, conversation_id });
+  public getContentMessage(chatwootService: ChatwootService, msg: IWebMessageInfo) {
+    const contentMessage = chatwootService.getConversationMessage(msg.message);
+    if (contentMessage) {
+      return contentMessage;
     }
 
-    return fksByNumber;
-  }
-
-  private async insertContactChatwoot(provider: ChatwootRaw, phone_number: string, identifier: string) {
-    const pgClient = postgresClient.getChatwootConnection();
-    const sqlInsert = `
-      INSERT INTO contacts
-        (name, phone_number, account_id, identifier, created_at, updated_at)
-      VALUES
-        ($1, $2, $3, $4, NOW(), NOW())
-      RETURNING id
-    `;
-    const bindInsert = [null, phone_number, provider.account_id, identifier];
-    const result = await pgClient.query(sqlInsert, bindInsert);
-    return result?.rows?.[0]?.id;
-  }
-
-  private async insertConversationChatwoot(provider: ChatwootRaw, inbox: inbox, contact_id: string) {
-    const pgClient = postgresClient.getChatwootConnection();
-    const sqlInsert = `
-      INSERT INTO conversations
-        (account_id, inbox_id, contact_id, status, created_at, updated_at)
-      VALUES
-        ($1, $2, $3, 'open', NOW(), NOW())
-      RETURNING id
-    `;
-    const bindInsert = [provider.account_id, inbox.id, contact_id];
-    const result = await pgClient.query(sqlInsert, bindInsert);
-    return result?.rows?.[0]?.id;
-  }
-
-  private async getChatwootUser(provider: ChatwootRaw): Promise<ChatwootUser | null> {
-    const pgClient = postgresClient.getChatwootConnection();
-    const sql = `
-      SELECT u.id as user_id, u.user_type
-      FROM users u
-      WHERE u.email = $1
-    `;
-    const result = await pgClient.query(sql, [provider.email]);
-    return result?.rows?.[0] || null;
-  }
-
-  private getContentMessage(chatwootService: ChatwootService, message: MessageRaw) {
-    if (message?.message?.conversation) {
-      return message.message.conversation;
+    if (!configService.get<Chatwoot>('CHATWOOT').IMPORT.PLACEHOLDER_MEDIA_MESSAGE) {
+      return '';
     }
-    return chatwootService.getMessageContent(message.message);
+
+    const types = {
+      documentMessage: msg.message.documentMessage,
+      documentWithCaptionMessage: msg.message.documentWithCaptionMessage?.message?.documentMessage,
+      imageMessage: msg.message.imageMessage,
+      videoMessage: msg.message.videoMessage,
+      audioMessage: msg.message.audioMessage,
+      stickerMessage: msg.message.stickerMessage,
+      templateMessage: msg.message.templateMessage?.hydratedTemplate?.hydratedContentText,
+    };
+    const typeKey = Object.keys(types).find((key) => types[key] !== undefined);
+
+    switch (typeKey) {
+      case 'documentMessage':
+        return `_<File: ${msg.message.documentMessage.fileName}${
+          msg.message.documentMessage.caption ? ` ${msg.message.documentMessage.caption}` : ''
+        }>_`;
+
+      case 'documentWithCaptionMessage':
+        return `_<File: ${msg.message.documentWithCaptionMessage.message.documentMessage.fileName}${
+          msg.message.documentWithCaptionMessage.message.documentMessage.caption
+            ? ` ${msg.message.documentWithCaptionMessage.message.documentMessage.caption}`
+            : ''
+        }>_`;
+
+      case 'templateMessage':
+        return msg.message.templateMessage.hydratedTemplate.hydratedTitleText
+          ? `*${msg.message.templateMessage.hydratedTemplate.hydratedTitleText}*\\n`
+          : '' + msg.message.templateMessage.hydratedTemplate.hydratedContentText;
+
+      case 'imageMessage':
+        return '_<Image Message>_';
+
+      case 'videoMessage':
+        return '_<Video Message>_';
+
+      case 'audioMessage':
+        return '_<Audio Message>_';
+
+      case 'stickerMessage':
+        return '_<Sticker Message>_';
+
+      default:
+        return '';
+    }
+  }
+
+  public sliceIntoChunks(arr: any[], chunkSize: number) {
+    return arr.splice(0, chunkSize);
+  }
+
+  public isGroup(remoteJid: string) {
+    return remoteJid.includes('@g.us');
+  }
+
+  public isIgnorePhoneNumber(remoteJid: string) {
+    return this.isGroup(remoteJid) || remoteJid === 'status@broadcast' || remoteJid === '0@s.whatsapp.net';
   }
 }
+
+export const chatwootImport = new ChatwootImport();
