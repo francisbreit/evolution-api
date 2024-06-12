@@ -103,30 +103,56 @@ class ChatwootImport {
     }
   }
 
-  public async insertTag(instanceName: string, totalContacts: number) {
-  const pgClient = postgresClient.getChatwootConnection();
-  const sqlCheckTag = `
-    SELECT id FROM tags WHERE name = $1
-  `;
-  const sqlInsertTag = `
-    INSERT INTO tags (name, taggings_count)
-    VALUES ($1, $2)
-    RETURNING id
-  `;
+ public async insertTag(instanceName: string, totalContacts: number) {
+    const pgClient = postgresClient.getChatwootConnection();
+    const sqlCheckTag = `
+      SELECT id FROM tags WHERE name = $1
+    `;
+    const sqlInsertTag = `
+      INSERT INTO tags (name, taggings_count)
+      VALUES ($1, $2)
+      RETURNING id
+    `;
 
-  try {
-    const checkResult = await pgClient.query(sqlCheckTag, [instanceName]);
-    if (checkResult.rowCount === 0) {
-      const result = await pgClient.query(sqlInsertTag, [instanceName, totalContacts]);
-      return result.rows[0].id;
-    } else {
-      this.logger.info(`Tag with name ${instanceName} already exists`);
-      return checkResult.rows[0].id;
+    try {
+      const checkResult = await pgClient.query(sqlCheckTag, [instanceName]);
+      if (checkResult.rowCount === 0) {
+        const result = await pgClient.query(sqlInsertTag, [instanceName, totalContacts]);
+        return result.rows[0].id;
+      } else {
+        this.logger.info(`Tag with name ${instanceName} already exists`);
+        // Update taggings_count here
+        const updateSql = `
+          UPDATE tags
+          SET taggings_count = taggings_count + $1
+          WHERE name = $2
+        `;
+        await pgClient.query(updateSql, [totalContacts, instanceName]);
+        return checkResult.rows[0].id;
+      }
+    } catch (error) {
+      this.logger.error(`Error on insert tag: ${error.toString()}`);
     }
-  } catch (error) {
-    this.logger.error(`Error on insert tag: ${error.toString()}`);
   }
-}
+
+  public async insertTaggings(instanceName: string, tagId: number, contactIds: number[]) {
+    const pgClient = postgresClient.getChatwootConnection();
+    const sqlInsertTaggings = `
+      INSERT INTO taggings (tag_id, taggable_type, taggable_id, tagger_type, tagger_id, context, created_at)
+      VALUES ($1, 'Contact', $2, NULL, NULL, 'labels', NOW())
+    `;
+
+    try {
+      const bindValues = [tagId];
+      for (const contactId of contactIds) {
+        bindValues.push(contactId);
+        await pgClient.query(sqlInsertTaggings, bindValues);
+        bindValues.pop(); // Remove the last added contactId
+      }
+    } catch (error) {
+      this.logger.error(`Error on insert taggings: ${error.toString()}`);
+    }
+  }
 
 
   public async importHistoryContacts(instance: InstanceDto, provider: ChatwootRaw) {
@@ -182,24 +208,7 @@ class ChatwootImport {
         contactsChunk = this.sliceIntoChunks(contacts, 3000);
       }
 
-     // Após inserir todos os contatos, inserir dados na tabela taggings
-    const identifiers = contacts.map(contact => contact.id);
-    const sqlInsertTaggings = `
-      INSERT INTO taggings (tag_id, taggable_type, taggable_id, tagger_type, tagger_id, context, created_at)
-      SELECT $1, 'Contact', id, NULL, NULL, 'labels', created_at
-      FROM contacts
-      WHERE identifier = ANY($2::text[])
-    `;
 
-    await pgClient.query(sqlInsertTaggings, [tagId, identifiers]);
-
-    this.deleteHistoryContacts(instance);
-
-      return totalContactsImported;
-    } catch (error) {
-      this.logger.error(`Error on import history contacts: ${error.toString()}`);
-    }
-  }
 
   public async importHistoryMessages(
     instance: InstanceDto,
