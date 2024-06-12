@@ -147,11 +147,10 @@ class ChatwootImport {
       let contactsChunk: ContactRaw[] = this.sliceIntoChunks(contacts, 3000);
        // Inserindo o label uma única vez
       await this.insertLabel(instance.instanceName, Number(provider.account_id));
-      const tagId = await this.insertTag(instance.instanceName, contacts.length);
-      const createdAt = new Date();
+     const tagId = await this.insertTag(instance.instanceName, contacts.length);
       
       while (contactsChunk.length > 0) {
-        // inserting contacts in chatwoot db
+        // Inserindo contatos no banco de dados Chatwoot
         let sqlInsert = `INSERT INTO contacts
           (name, phone_number, account_id, identifier, created_at, updated_at) VALUES `;
         const bindInsert = [provider.account_id];
@@ -183,19 +182,18 @@ class ChatwootImport {
         contactsChunk = this.sliceIntoChunks(contacts, 3000);
       }
 
-     
-       
-        // Inserir dados na tabela taggings
-        const sqlInsertTaggings = `
-            INSERT INTO taggings (tag_id, taggable_type, taggable_id, tagger_type, tagger_id, context, created_at)
-            SELECT $1, 'Contact', id, NULL, NULL, 'labels', '2024-06-11 23:29:30.403094'
-            FROM contacts
-            WHERE identifier = ANY($2::text[])
-        `;
-        const identifiers = contacts.map(contact => contact.id);
-        await pgClient.query(sqlInsertTaggings, [tagId, identifiers]);
+     // Após inserir todos os contatos, inserir dados na tabela taggings
+    const identifiers = contacts.map(contact => contact.id);
+    const sqlInsertTaggings = `
+      INSERT INTO taggings (tag_id, taggable_type, taggable_id, tagger_type, tagger_id, context, created_at)
+      SELECT $1, 'Contact', id, NULL, NULL, 'labels', created_at
+      FROM contacts
+      WHERE identifier = ANY($2::text[])
+    `;
 
-      this.deleteHistoryContacts(instance);
+    await pgClient.query(sqlInsertTaggings, [tagId, identifiers]);
+
+    this.deleteHistoryContacts(instance);
 
       return totalContactsImported;
     } catch (error) {
