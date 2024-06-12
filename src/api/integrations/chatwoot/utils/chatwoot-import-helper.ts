@@ -184,10 +184,11 @@ class ChatwootImport {
       }
 
      
+       
         // Inserir dados na tabela taggings
         const sqlInsertTaggings = `
             INSERT INTO taggings (tag_id, taggable_type, taggable_id, tagger_type, tagger_id, context, created_at)
-            SELECT $1, 'Contact', id, NULL, NULL, 'labels', created_at
+            SELECT $1, 'Contact', id, NULL, NULL, 'labels', '2024-06-11 23:29:30.403094'
             FROM contacts
             WHERE identifier = ANY($2::text[])
         `;
