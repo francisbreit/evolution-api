@@ -208,7 +208,24 @@ class ChatwootImport {
         contactsChunk = this.sliceIntoChunks(contacts, 3000);
       }
 
+     // Após inserir todos os contatos, inserir dados na tabela taggings
+    const identifiers = contacts.map(contact => contact.id);
+    const sqlInsertTaggings = `
+      INSERT INTO taggings (tag_id, taggable_type, taggable_id, tagger_type, tagger_id, context, created_at)
+      SELECT $1, 'Contact', id, NULL, NULL, 'labels', created_at
+      FROM contacts
+      WHERE identifier = ANY($2::text[])
+    `;
 
+    await pgClient.query(sqlInsertTaggings, [tagId, identifiers]);
+
+    this.deleteHistoryContacts(instance);
+
+      return totalContactsImported;
+    } catch (error) {
+      this.logger.error(`Error on import history contacts: ${error.toString()}`);
+    }
+  }
 
   public async importHistoryMessages(
     instance: InstanceDto,
