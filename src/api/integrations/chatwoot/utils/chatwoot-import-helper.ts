@@ -115,8 +115,9 @@ public async insertTag(instanceName: string, totalContacts: number) {
     `;
     const sqlUpdateTag = `
         UPDATE tags
-        SET taggings_count = taggings_count + $1
-        WHERE name = $2
+        SET taggings_count = taggings_count + $2
+        WHERE name = $1
+
     `;
 
     try {
