@@ -155,77 +155,80 @@ class ChatwootImport {
   }
 
 
-  public async importHistoryContacts(instance: InstanceDto, provider: ChatwootRaw) {
+ public async importHistoryContacts(instance: InstanceDto, provider: ChatwootRaw) {
     try {
-      if (this.getHistoryMessagesLenght(instance) > 0) {
-        return;
-      }
-
-      const pgClient = postgresClient.getChatwootConnection();
-
-      let totalContactsImported = 0;
-
-      const contacts = this.historyContacts.get(instance.instanceName) || [];
-      if (contacts.length === 0) {
-        return 0;
-      }
-
-      let contactsChunk: ContactRaw[] = this.sliceIntoChunks(contacts, 3000);
-       // Inserindo o label uma única vez
-      await this.insertLabel(instance.instanceName, Number(provider.account_id));
-     const tagId = await this.insertTag(instance.instanceName, contacts.length);
-      
-      while (contactsChunk.length > 0) {
-        // Inserindo contatos no banco de dados Chatwoot
-        let sqlInsert = `INSERT INTO contacts
-          (name, phone_number, account_id, identifier, created_at, updated_at) VALUES `;
-        const bindInsert = [provider.account_id];
-
-        for (const contact of contactsChunk) {
-          bindInsert.push(contact.pushName);
-          const bindName = `$${bindInsert.length}`;
-
-          bindInsert.push(`+${contact.id.split('@')[0]}`);
-          const bindPhoneNumber = `$${bindInsert.length}`;
-
-          bindInsert.push(contact.id);
-          const bindIdentifier = `$${bindInsert.length}`;
-
-          sqlInsert += `(${bindName}, ${bindPhoneNumber}, $1, ${bindIdentifier}, NOW(), NOW()),`;
-        
-        
+        if (this.getHistoryMessagesLenght(instance) > 0) {
+            return;
         }
-        if (sqlInsert.slice(-1) === ',') {
-          sqlInsert = sqlInsert.slice(0, -1);
+
+        const pgClient = postgresClient.getChatwootConnection();
+
+        let totalContactsImported = 0;
+
+        const contacts = this.historyContacts.get(instance.instanceName) || [];
+        if (contacts.length === 0) {
+            return 0;
         }
-        sqlInsert += ` ON CONFLICT (identifier, account_id)
-                       DO UPDATE SET
-                        name = EXCLUDED.name,
-                        phone_number = EXCLUDED.phone_number,
-                        identifier = EXCLUDED.identifier`;
 
-        totalContactsImported += (await pgClient.query(sqlInsert, bindInsert))?.rowCount ?? 0;
-        contactsChunk = this.sliceIntoChunks(contacts, 3000);
-      }
+        let contactsChunk: ContactRaw[] = this.sliceIntoChunks(contacts, 3000);
+        // Inserindo o label uma única vez
+        await this.insertLabel(instance.instanceName, Number(provider.account_id));
+        const tagId = await this.insertTag(instance.instanceName, contacts.length);
+        
+        const contactIds: number[] = [];
 
-     // Após inserir todos os contatos, inserir dados na tabela taggings
-    const identifiers = contacts.map(contact => contact.id);
-    const sqlInsertTaggings = `
-      INSERT INTO taggings (tag_id, taggable_type, taggable_id, tagger_type, tagger_id, context, created_at)
-      SELECT $1, 'Contact', id, NULL, NULL, 'labels', created_at
-      FROM contacts
-      WHERE identifier = ANY($2::text[])
-    `;
+        while (contactsChunk.length > 0) {
+            // Inserindo contatos no banco de dados Chatwoot
+            let sqlInsert = `INSERT INTO contacts
+              (name, phone_number, account_id, identifier, created_at, updated_at) VALUES `;
+            const bindInsert = [provider.account_id];
 
-    await pgClient.query(sqlInsertTaggings, [tagId, identifiers]);
+            for (const contact of contactsChunk) {
+                bindInsert.push(contact.pushName);
+                const bindName = `$${bindInsert.length}`;
 
-    this.deleteHistoryContacts(instance);
+                bindInsert.push(`+${contact.id.split('@')[0]}`);
+                const bindPhoneNumber = `$${bindInsert.length}`;
 
-      return totalContactsImported;
+                bindInsert.push(contact.id);
+                const bindIdentifier = `$${bindInsert.length}`;
+
+                sqlInsert += `(${bindName}, ${bindPhoneNumber}, $1, ${bindIdentifier}, NOW(), NOW()),`;
+            }
+
+            if (sqlInsert.slice(-1) === ',') {
+                sqlInsert = sqlInsert.slice(0, -1);
+            }
+            sqlInsert += ` ON CONFLICT (identifier, account_id)
+                           DO UPDATE SET
+                            name = EXCLUDED.name,
+                            phone_number = EXCLUDED.phone_number,
+                            identifier = EXCLUDED.identifier
+                            RETURNING id`;
+
+            const result = await pgClient.query(sqlInsert, bindInsert);
+            totalContactsImported += result?.rowCount ?? 0;
+
+            // Coletando os IDs dos contatos inseridos ou atualizados
+            for (const row of result.rows) {
+                contactIds.push(row.id);
+            }
+
+            contactsChunk = this.sliceIntoChunks(contacts, 3000);
+        }
+
+        // Após inserir todos os contatos, inserir dados na tabela taggings
+        await this.insertTaggings(instance.instanceName, tagId, contactIds);
+
+        this.deleteHistoryContacts(instance);
+
+        return totalContactsImported;
     } catch (error) {
-      this.logger.error(`Error on import history contacts: ${error.toString()}`);
+        this.logger.error(`Error on import history contacts: ${error.toString()}`);
     }
-  }
+}
+
+
 
   public async importHistoryMessages(
     instance: InstanceDto,
