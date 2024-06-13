@@ -175,7 +175,9 @@ class ChatwootImport {
         let contactsChunk: ContactRaw[] = this.sliceIntoChunks(contacts, 3000);
         // Inserindo o label uma única vez
         await this.insertLabel(instance.instanceName, Number(provider.account_id));
-        const tagId = await this.insertTag(instance.instanceName, contacts.length);
+        // const tagId = await this.insertTag(instance.instanceName, contacts.length);
+        const tagId = await this.insertTag(instanceName, contacts.length);
+
         
         const contactIds: number[] = [];
 
