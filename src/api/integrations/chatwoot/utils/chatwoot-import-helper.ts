@@ -103,36 +103,38 @@ class ChatwootImport {
     }
   }
 
-public async insertTag(instanceName: string, totalContacts: number) {
-    const pgClient = postgresClient.getChatwootConnection();
-    const sqlCheckTag = `
-        SELECT id FROM tags WHERE name = $1
-    `;
-    const sqlInsertTag = `
-        INSERT INTO tags (name, taggings_count)
-        VALUES ($1, $2)
-        RETURNING id
-    `;
-    const sqlUpdateTag = `
-        UPDATE tags
-        SET taggings_count = taggings_count + 1
-        WHERE name = $1
-    `;
 
-    try {
-        const checkResult = await pgClient.query(sqlCheckTag, [instanceName]);
-        if (checkResult.rowCount === 0) {
-            const result = await pgClient.query(sqlInsertTag, [instanceName, totalContacts]);
-            return result.rows[0].id;
-        } else {
-            await pgClient.query(sqlUpdateTag, [totalContacts, instanceName]);
-            this.logger.info(`Tag with name ${instanceName} already exists, taggings_count updated.`);
-            return checkResult.rows[0].id;
-        }
-    } catch (error) {
-        this.logger.error(`Error on insert tag: ${error.toString()}`);
+ public async insertTag(instanceName: string, totalContacts: number) {
+  const pgClient = postgresClient.getChatwootConnection();
+  const sqlCheckTag = `
+    SELECT id FROM tags WHERE name = $1
+  `;
+  const sqlInsertTag = `
+    INSERT INTO tags (name, taggings_count)
+    VALUES ($1, $2)
+    RETURNING id
+  `;
+  const sqlUpdateTag = `
+    UPDATE tags
+    SET taggings_count = taggings_count + $1
+    WHERE name = $2
+  `;
+
+  try {
+    const checkResult = await pgClient.query(sqlCheckTag, [instanceName]);
+    if (checkResult.rowCount === 0) {
+      const result = await pgClient.query(sqlInsertTag, [instanceName, totalContacts]);
+      return result.rows[0].id;
+    } else {
+      await pgClient.query(sqlUpdateTag, [totalContacts, instanceName]);
+      this.logger.info(`Tag with name ${instanceName} already exists, taggings_count updated.`);
+      return checkResult.rows[0].id;
     }
+  } catch (error) {
+    this.logger.error(`Error on insert tag: ${error.toString()}`);
+  }
 }
+
 
 
   public async insertTaggings(instanceName: string, tagId: number, contactIds: number[]) {
