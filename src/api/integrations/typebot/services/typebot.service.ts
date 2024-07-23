@@ -781,7 +781,7 @@ export class TypebotService {
           url: url,
           typebot: typebot,
           prefilledVariables: prefilledVariables,
-          sessionId: `${response.sessionId}`,
+          sessionId: response.sessionId,
         });
       } else {
         throw new Error('Session ID not found in response');
@@ -800,7 +800,7 @@ export class TypebotService {
             prefilledVariables: prefilledVariables,
           };
         } else {
-          url = `${data.url}/api/v1/sendMessage`;
+          requestUrl = `${data.url}/api/v1/sendMessage`;
 
           reqData = {
             startParams: {
@@ -831,7 +831,7 @@ export class TypebotService {
 
         this.waMonitor.waInstances[instance.instanceName].sendDataWebhook(Events.TYPEBOT_START, {
           remoteJid: remoteJid,
-          url: url,
+          url: requestUrl,
           typebot: typebot,
           variables: variables,
           sessionId: id,
