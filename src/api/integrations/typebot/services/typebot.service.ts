@@ -831,7 +831,7 @@ export class TypebotService {
 
         this.waMonitor.waInstances[instance.instanceName].sendDataWebhook(Events.TYPEBOT_START, {
           remoteJid: remoteJid,
-          url: requestUrl,
+          url: url,
           typebot: typebot,
           variables: variables,
           sessionId: id,
