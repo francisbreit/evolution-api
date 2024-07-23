@@ -800,7 +800,7 @@ export class TypebotService {
             prefilledVariables: prefilledVariables,
           };
         } else {
-          requestUrl = `${data.url}/api/v1/sendMessage`;
+          url = `${data.url}/api/v1/sendMessage`;
 
           reqData = {
             startParams: {
