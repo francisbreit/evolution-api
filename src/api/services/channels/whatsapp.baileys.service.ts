@@ -1,6 +1,7 @@
 import ffmpegPath from '@ffmpeg-installer/ffmpeg';
 import { Boom } from '@hapi/boom';
 import { Instance } from '@prisma/client';
+import isJidNewsletter from 'baileys';
 import axios from 'axios';
 import makeWASocket, {
   AnyMessageContent,
@@ -22,7 +23,6 @@ import makeWASocket, {
   GroupParticipant,
   isJidBroadcast,
   isJidGroup,
-  isJidNewsletter,
   isJidUser,
   makeCacheableSignalKeyStore,
   MessageUpsertType,
